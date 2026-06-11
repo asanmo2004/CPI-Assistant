@@ -25,10 +25,12 @@ public class ValueMappingController {
     )
     public ResponseEntity<?> process(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("source") String source,
-            @RequestParam("target") String target,
-            @RequestParam("source_id") String sourceId,
-            @RequestParam("target_id") String targetId
+            @RequestParam("keyField") String source,
+            @RequestParam("valueField") String target,
+            @RequestParam("sourceAgency") String source_agency,
+            @RequestParam("targetAgency") String target_agency,
+            @RequestParam("sourceIdentifier") String sourceId,
+            @RequestParam("sourceIdentifier") String targetId
     ) {
 
         try {
@@ -76,7 +78,9 @@ public class ValueMappingController {
                             source,
                             target,
                             sourceId,
-                            targetId
+                            targetId,
+                            source_agency,
+                            target_agency
                     );
 
             ByteArrayResource resource =

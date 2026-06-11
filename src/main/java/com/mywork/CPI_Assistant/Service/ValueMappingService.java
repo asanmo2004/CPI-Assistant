@@ -14,7 +14,9 @@ public class ValueMappingService {
             String source,
             String target,
             String sourceId,
-            String targetId
+            String targetId,
+            String source_agency,
+            String target_agency
     ) throws Exception {
 
         BufferedReader reader =
@@ -112,7 +114,9 @@ public class ValueMappingService {
                 target,
                 uniqueMappings,
                 sourceId,
-                targetId
+                targetId,
+                source_agency,
+                target_agency
         );
     }
 
@@ -121,7 +125,9 @@ public class ValueMappingService {
             String target,
             Map<String, String> data,
             String sourceId,
-            String targetId
+            String targetId,
+            String source_agency,
+            String target_agency
     ) throws Exception {
 
         ByteArrayOutputStream outputStream =
@@ -134,23 +140,23 @@ public class ValueMappingService {
                                 StandardCharsets.UTF_8
                         )
                 );
-        if (source.startsWith("\"")
-                && source.endsWith("\"")) {
+        if (source_agency.startsWith("\"")
+                && source_agency.endsWith("\"")) {
 
-            source = source.substring(1, source.length() - 1);
+            source_agency = source_agency.substring(1, source.length() - 1);
         }
 
-        if (target.startsWith("\"")
-                && target.endsWith("\"")) {
+        if (target_agency.startsWith("\"")
+                && target_agency.endsWith("\"")) {
 
-            target = target.substring(1, target.length() - 1);
+            target_agency = target_agency.substring(1, target.length() - 1);
         }
         // Header Row
         writer.write(
                 "," +
-                        source + "|" + sourceId +
+                        source_agency + "|" + sourceId +
                         "," +
-                        target + "|" + targetId
+                        target_agency + "|" + targetId
         );
 
         writer.newLine();
