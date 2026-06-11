@@ -30,7 +30,7 @@ public class ValueMappingController {
             @RequestParam("sourceAgency") String source_agency,
             @RequestParam("targetAgency") String target_agency,
             @RequestParam("sourceIdentifier") String sourceId,
-            @RequestParam("sourceIdentifier") String targetId
+            @RequestParam("targetIdentifier") String targetId
     ) {
 
         try {
