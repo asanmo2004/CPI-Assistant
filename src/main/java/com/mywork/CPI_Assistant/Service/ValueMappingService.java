@@ -1,22 +1,226 @@
 package com.mywork.CPI_Assistant.Service;
 
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.*;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 @Service
+@Slf4j
 public class ValueMappingService {
 
-    public byte[] processCsv(
-            InputStream csvStream,
+    public ByteArrayResource generateValueMapping(
+            MultipartFile file,
             String source,
             String target,
-            String sourceId,
-            String targetId,
-            String source_agency,
-            String target_agency
+            String sourceAgency,
+            String targetAgency,
+            String sourceIdentifier,
+            String targetIdentifier
+    ) {
+
+        try {
+
+            validateFile(file);
+
+            log.info("Processing file: {}", file.getOriginalFilename());
+
+            InputStream csvInputStream =
+                    getCsvInputStream(file, source, target);
+
+            Map<String, String> mappings =
+                    extractMappings(
+                            csvInputStream,
+                            source,
+                            target
+                    );
+
+            log.info(
+                    "Successfully extracted {} unique mappings",
+                    mappings.size()
+            );
+
+            byte[] result =
+                    generateOutputCsv(
+                            mappings,
+                            sourceAgency,
+                            targetAgency,
+                            sourceIdentifier,
+                            targetIdentifier
+                    );
+
+            return new ByteArrayResource(result);
+
+        } catch (Exception ex) {
+
+            log.error(
+                    "Error while generating value mapping",
+                    ex
+            );
+
+            throw new RuntimeException(
+                    "Failed to process file: "
+                            + ex.getMessage()
+            );
+        }
+    }
+
+    private void validateFile(
+            MultipartFile file
+    ) {
+
+        if (file == null || file.isEmpty()) {
+            throw new RuntimeException(
+                    "Uploaded file is empty"
+            );
+        }
+
+        String fileName =
+                file.getOriginalFilename();
+
+        if (fileName == null ||
+                !(fileName.endsWith(".csv")
+                        || fileName.endsWith(".xls")
+                        || fileName.endsWith(".xlsx"))) {
+
+            throw new RuntimeException(
+                    "Only CSV, XLS and XLSX files are supported"
+            );
+        }
+    }
+
+    private InputStream getCsvInputStream(
+            MultipartFile file,
+            String source,
+            String target
+    ) throws Exception {
+
+        String fileName =
+                file.getOriginalFilename()
+                        .toLowerCase();
+
+        if (fileName.endsWith(".csv")) {
+
+            log.info("CSV file detected");
+
+            return new ByteArrayInputStream(
+                    file.getBytes()
+            );
+        }
+
+        log.info("Excel file detected");
+
+        return convertExcelToCsv(file);
+    }
+
+    private ByteArrayInputStream convertExcelToCsv(
+            MultipartFile file
+    ) throws Exception {
+
+        Workbook workbook =
+                WorkbookFactory.create(
+                        file.getInputStream()
+                );
+
+        Sheet sheet =
+                workbook.getSheetAt(0);
+
+        ByteArrayOutputStream outputStream =
+                new ByteArrayOutputStream();
+
+        BufferedWriter writer =
+                new BufferedWriter(
+                        new OutputStreamWriter(
+                                outputStream,
+                                StandardCharsets.UTF_8
+                        )
+                );
+
+        for (Row row : sheet) {
+
+            StringBuilder rowData =
+                    new StringBuilder();
+
+            int lastCell =
+                    row.getLastCellNum();
+
+            for (int i = 0; i < lastCell; i++) {
+
+                Cell cell =
+                        row.getCell(
+                                i,
+                                Row.MissingCellPolicy
+                                        .CREATE_NULL_AS_BLANK
+                        );
+
+                rowData.append(
+                        getCellValue(cell)
+                );
+
+                if (i < lastCell - 1) {
+                    rowData.append(",");
+                }
+            }
+
+            writer.write(
+                    rowData.toString()
+            );
+
+            writer.newLine();
+        }
+
+        writer.flush();
+        workbook.close();
+
+        return new ByteArrayInputStream(
+                outputStream.toByteArray()
+        );
+    }
+
+    private String getCellValue(
+            Cell cell
+    ) {
+
+        return switch (cell.getCellType()) {
+
+            case STRING ->
+                    cell.getStringCellValue();
+
+            case NUMERIC -> {
+
+                double value =
+                        cell.getNumericCellValue();
+
+                if (value == (long) value) {
+                    yield String.valueOf(
+                            (long) value
+                    );
+                }
+
+                yield String.valueOf(value);
+            }
+
+            case BOOLEAN ->
+                    String.valueOf(
+                            cell.getBooleanCellValue()
+                    );
+
+            case FORMULA ->
+                    cell.getCellFormula();
+
+            default -> "";
+        };
+    }
+
+    private Map<String, String> extractMappings(
+            InputStream csvStream,
+            String source,
+            String target
     ) throws Exception {
 
         BufferedReader reader =
@@ -27,107 +231,89 @@ public class ValueMappingService {
                         )
                 );
 
-        List<String[]> rows = new ArrayList<>();
+        List<String[]> rows =
+                new ArrayList<>();
 
         String line;
 
-        // Read CSV Rows
         while ((line = reader.readLine()) != null) {
-
-            String[] values = line.split(",");
-
-            rows.add(values);
+            rows.add(line.split(","));
         }
 
         if (rows.isEmpty()) {
-            throw new Exception("Empty CSV File");
+            throw new RuntimeException(
+                    "CSV file is empty"
+            );
         }
 
-        // Header Row
-        String[] header = rows.get(0);
+        String[] header =
+                rows.get(0);
 
         int sourceIndex = -1;
         int targetIndex = -1;
 
-        // Find Source & Target Index
         for (int i = 0; i < header.length; i++) {
 
-            String column = header[i].trim();
+            String column =
+                    header[i]
+                            .trim()
+                            .replace("\"", "");
 
-            if (column.equals(source)) {
+            if (column.equalsIgnoreCase(source)) {
                 sourceIndex = i;
             }
 
-            if (column.equals(target)) {
+            if (column.equalsIgnoreCase(target)) {
                 targetIndex = i;
             }
         }
 
-        if (sourceIndex == -1 || targetIndex == -1) {
+        if (sourceIndex == -1
+                || targetIndex == -1) {
 
-            throw new Exception(
+            throw new RuntimeException(
                     "Source or Target column not found"
             );
         }
 
-        /*
-            HashMap to avoid duplicate source values
-
-            Key   -> Source
-            Value -> Target
-        */
-        Map<String, String> uniqueMappings =
+        Map<String, String> mappings =
                 new LinkedHashMap<>();
 
-        // Extract Source & Target Values
         for (int i = 1; i < rows.size(); i++) {
 
-            String[] row = rows.get(i);
+            String[] row =
+                    rows.get(i);
 
-            String src = "";
-            String tgt = "";
+            String src =
+                    sourceIndex < row.length
+                            ? row[sourceIndex].trim()
+                            : "";
 
-            if (sourceIndex < row.length) {
-                src = row[sourceIndex].trim();
-            }
+            String tgt =
+                    targetIndex < row.length
+                            ? row[targetIndex].trim()
+                            : "";
 
-            if (targetIndex < row.length) {
-                tgt = row[targetIndex].trim();
-            }
-
-            // Skip Empty Values
-            if (src.isBlank() || tgt.isBlank()) {
+            if (src.isBlank()
+                    || tgt.isBlank()) {
                 continue;
             }
 
-            /*
-                Avoid Duplicate Source
-
-                If source already exists,
-                it will not overwrite existing value
-            */
-            uniqueMappings.putIfAbsent(src, tgt);
+            mappings.putIfAbsent(
+                    src,
+                    tgt
+            );
         }
 
-        return generateCsv(
-                source,
-                target,
-                uniqueMappings,
-                sourceId,
-                targetId,
-                source_agency,
-                target_agency
-        );
+        return mappings;
     }
 
-    private byte[] generateCsv(
-            String source,
-            String target,
-            Map<String, String> data,
-            String sourceId,
-            String targetId,
-            String source_agency,
-            String target_agency
+    private byte[] generateOutputCsv(
+            Map<String, String> mappings,
+            String sourceAgency,
+            String targetAgency,
+            String sourceIdentifier,
+            String targetIdentifier
     ) throws Exception {
 
         ByteArrayOutputStream outputStream =
@@ -140,47 +326,38 @@ public class ValueMappingService {
                                 StandardCharsets.UTF_8
                         )
                 );
-        if (source_agency.startsWith("\"")
-                && source_agency.endsWith("\"")) {
 
-            source_agency = source_agency.substring(1, source.length() - 1);
-        }
-
-        if (target_agency.startsWith("\"")
-                && target_agency.endsWith("\"")) {
-
-            target_agency = target_agency.substring(1, target.length() - 1);
-        }
-        // Header Row
         writer.write(
                 "," +
-                        source_agency + "|" + sourceId +
+                        sourceAgency +
+                        "|" +
+                        sourceIdentifier +
                         "," +
-                        target_agency + "|" + targetId
+                        targetAgency +
+                        "|" +
+                        targetIdentifier
         );
 
         writer.newLine();
 
-        // Data Rows
-        for (Map.Entry<String, String> entry : data.entrySet()) {
+        for (Map.Entry<String, String> entry :
+                mappings.entrySet()) {
 
-            String src = entry.getKey();
-            String tgt = entry.getValue();
-            if (src.startsWith("\"")
-                    && src.endsWith("\"")) {
+            String source =
+                    removeQuotes(
+                            entry.getKey()
+                    );
 
-                src = src.substring(1, src.length() - 1);
-            }
+            String target =
+                    removeQuotes(
+                            entry.getValue()
+                    );
 
-            if (tgt.startsWith("\"")
-                    && tgt.endsWith("\"")) {
-
-                tgt = tgt.substring(1, tgt.length() - 1);
-            }
             writer.write(
                     "Receiver," +
-                            src + "|," +
-                            tgt
+                            source +
+                            "|," +
+                            target
             );
 
             writer.newLine();
@@ -189,5 +366,25 @@ public class ValueMappingService {
         writer.flush();
 
         return outputStream.toByteArray();
+    }
+
+    private String removeQuotes(
+            String value
+    ) {
+
+        if (value == null) {
+            return "";
+        }
+
+        if (value.startsWith("\"")
+                && value.endsWith("\"")) {
+
+            return value.substring(
+                    1,
+                    value.length() - 1
+            );
+        }
+
+        return value;
     }
 }
